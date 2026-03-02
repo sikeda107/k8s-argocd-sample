@@ -1,6 +1,9 @@
-# kind + ArgoCD で nginx を GitOps デプロイ（本番想定）
+# kind + ArgoCD で nginx を GitOps デプロイ（管理クラスタ/配備クラスタ分離）
 
-このリポジトリは、`kind` 上の Kubernetes クラスタへ ArgoCD を使って `nginx` を GitOps デプロイするための最小かつ本番運用を意識した構成です。
+このリポジトリは、ArgoCD を動かすクラスタと nginx を配備するクラスタを分離した GitOps 構成です。
+
+- 管理クラスタ: `kind-argocd-mgmt`（ArgoCD）
+- 配備先クラスタ: `kind-nginx-prod`（nginx ワークロード）
 
 ## ディレクトリ構成
 
@@ -19,42 +22,21 @@
             └── nginx-app.yaml
 ```
 
-- `apps/nginx/base`: アプリ本体（Namespace / Deployment / Service）
-- `clusters/kind/argocd/nginx-app.yaml`: ArgoCD `Application` 定義（Auto Sync, Self Heal, Prune 有効）
-
 ## 前提
 
-- macOS + Homebrew
-- Docker Desktop (or Rancher Desktop) が起動済み
-- `kubectl`, `gh` が利用可能
+- Docker Desktop (or Rancher Desktop) 起動済み
+- `kind`, `kubectl`, `gh`, `argocd` CLI が利用可能
 
-## 1. GitHub リポジトリ作成〜初回 push（実行手順）
+## 1. GitHub リポジトリ作成と push
 
 ```bash
-# このディレクトリで実行
 git init -b main
 git add .
 git commit -m "Add production-style GitOps manifests for nginx via ArgoCD"
-
-# GitHubに作成してそのままpush（privateで作成）
 gh repo create k8s-argocd-sample --private --source=. --remote=origin --push
 ```
 
-この時点で作成される URL 例:
-
-```text
-https://github.com/<your-user>/k8s-argocd-sample
-```
-
-## 2. ArgoCD Application の repoURL を実 URL に更新して push
-
-`clusters/kind/argocd/nginx-app.yaml` の `spec.source.repoURL` を更新:
-
-```yaml
-repoURL: https://github.com/<your-user>/k8s-argocd-sample.git
-```
-
-反映:
+`clusters/kind/argocd/nginx-app.yaml` の `repoURL` を実URLにして push:
 
 ```bash
 git add clusters/kind/argocd/nginx-app.yaml
@@ -62,140 +44,170 @@ git commit -m "Set ArgoCD repoURL to created GitHub repository"
 git push origin main
 ```
 
-## 3. kind クラスタ作成
+## 2. kind クラスタを2つ作成
 
 ```bash
-kind create cluster --name argocd-sample
-kubectl config use-context kind-argocd-sample
-kubectl config current-context
+kind create cluster --name argocd-mgmt
+kind create cluster --name nginx-prod
 ```
 
-期待値:
-
-```text
-kind-argocd-sample
-```
-
-## 4. ArgoCD インストール
+確認:
 
 ```bash
-kubectl create namespace argocd
-kubectl apply -n argocd -f https://raw.githubusercontent.com/argoproj/argo-cd/stable/manifests/install.yaml
+kind get clusters
+kubectl config get-contexts -o name
 ```
 
-もし CRD annotation サイズエラーが出た場合は再実行:
+## 3. 管理クラスタに ArgoCD をインストール
 
 ```bash
-kubectl apply --server-side -n argocd -f https://raw.githubusercontent.com/argoproj/argo-cd/stable/manifests/install.yaml
+kubectl --context kind-argocd-mgmt create namespace argocd
+kubectl --context kind-argocd-mgmt apply -n argocd -f https://raw.githubusercontent.com/argoproj/argo-cd/stable/manifests/install.yaml
+```
+
+CRD annotation サイズエラー時:
+
+```bash
+kubectl --context kind-argocd-mgmt apply --server-side -n argocd -f https://raw.githubusercontent.com/argoproj/argo-cd/stable/manifests/install.yaml
 ```
 
 起動確認:
 
 ```bash
-kubectl -n argocd get pods
+kubectl --context kind-argocd-mgmt -n argocd get pods
 ```
 
-## 5. ArgoCD Application 適用（GitOps 開始）
+## 4. 配備先クラスタを ArgoCD に登録
+
+ArgoCD API にログイン:
 
 ```bash
-kubectl apply -f clusters/kind/argocd/nginx-app.yaml
-kubectl -n argocd get application nginx-prod -o wide
+kubectl --context kind-argocd-mgmt -n argocd port-forward svc/argocd-server 8081:443
+# 別ターミナル
+argocd login localhost:8081 --username admin --insecure
 ```
+
+配備先クラスタ `kind-nginx-prod` を登録（ArgoCD 内のクラスタ名を `nginx-prod-target` に統一）:
+
+```bash
+argocd cluster add kind-nginx-prod --name nginx-prod-target --yes
+```
+
+登録確認:
+
+```bash
+argocd cluster list
+```
+
+## 5. Application を管理クラスタへ適用
+
+```bash
+kubectl --context kind-argocd-mgmt apply -f clusters/kind/argocd/nginx-app.yaml
+kubectl --context kind-argocd-mgmt -n argocd get application nginx-prod -o wide
+```
+
+> `nginx-app.yaml` は `destination.name: nginx-prod-target` を参照します。
 
 ## 6. private repo を使う場合の注意
 
-今回の実行では、GitHub リポジトリが private のままだと ArgoCD が取得できず、以下エラーになりました。
+private のままだと ArgoCD が取得できず `authentication required` になることがあります。  
+その場合はどちらかを実施:
 
-- `authentication required: Repository not found`
+- ArgoCD に GitHub 認証情報（PAT/SSH）を登録
+- 一時的に public 化
 
-手早く進める場合は一時的に public 化:
+public 化例:
 
 ```bash
 gh repo edit <your-user>/k8s-argocd-sample --visibility public --accept-visibility-change-consequences
-```
-
-その後、再評価をトリガー:
-
-```bash
-kubectl -n argocd annotate application nginx-prod argocd.argoproj.io/refresh=hard --overwrite
+kubectl --context kind-argocd-mgmt -n argocd annotate application nginx-prod argocd.argoproj.io/refresh=hard --overwrite
 ```
 
 ## 7. 動作確認コマンド
 
+ArgoCD 側（管理クラスタ）:
+
 ```bash
-# ArgoCD 側
-kubectl -n argocd get application nginx-prod -o wide
-kubectl -n argocd describe application nginx-prod
+kubectl --context kind-argocd-mgmt -n argocd get application nginx-prod -o wide
+kubectl --context kind-argocd-mgmt -n argocd describe application nginx-prod
+```
 
-# ワークロード側
-kubectl get ns web-prod
-kubectl -n web-prod get deploy,pods,svc
-kubectl -n web-prod rollout status deploy/nginx
+nginx 側（配備先クラスタ）:
 
-# ローカル疎通
-kubectl -n web-prod port-forward svc/nginx 8080:80
+```bash
+kubectl --context kind-nginx-prod get ns web-prod
+kubectl --context kind-nginx-prod -n web-prod get deploy,pods,svc
+kubectl --context kind-nginx-prod -n web-prod rollout status deploy/nginx
+```
+
+疎通確認:
+
+```bash
+kubectl --context kind-nginx-prod -n web-prod port-forward svc/nginx 8080:80
 curl -i http://127.0.0.1:8080
 ```
 
-## 8. ArgoCD UI へのアクセス
+## 8. Auto Deploy 検証（replicas 変更）
 
 ```bash
-# 1) ローカルへポートフォワード
-kubectl -n argocd port-forward svc/argocd-server 8081:443
-```
-
-別ターミナルで初期管理者パスワードを取得:
-
-```bash
-kubectl -n argocd get secret argocd-initial-admin-secret \
-  -o jsonpath="{.data.password}" | base64 --decode; echo
-```
-
-ブラウザアクセス:
-
-- `https://localhost:8081`
-- username: `admin`
-- password: 上記コマンドで取得した値
-
-## 9. Auto Deploy 検証（replicas 変更）
-
-`Auto Sync` が有効なため、Git へ push するだけでクラスタ反映されます。  
-以下は実際に行った検証手順です。
-
-```bash
-# replicas を 3 -> 4 へ変更
 git add apps/nginx/base/deployment.yaml
 git commit -m "Scale nginx to 4 replicas"
 git push origin main
 ```
 
-反映確認:
+確認:
 
 ```bash
-# ArgoCD が最新 commit を追従しているか
-kubectl -n argocd get application nginx-prod -o wide
-
-# Deployment の replicas が増えたか
-kubectl -n web-prod get deploy nginx
-kubectl -n web-prod get pods
+kubectl --context kind-argocd-mgmt -n argocd get application nginx-prod -o wide
+kubectl --context kind-nginx-prod -n web-prod get deploy nginx
+kubectl --context kind-nginx-prod -n web-prod get pods
 ```
 
 期待値:
 
 - `nginx-prod` が `Synced` / `Healthy`
-- `REVISION` が push した commit SHA に更新される
-- `deployment/nginx` が `4/4` になる
+- `REVISION` が最新 commit SHA
+- `deployment/nginx` が Git 定義 replicas で Ready
 
-期待値:
+## 9. ArgoCD UI へのアクセス
 
-- `nginx-prod` が `Synced` / `Healthy`
-- `web-prod` namespace が存在
-- `deployment/nginx` が Git で定義した replicas 数で Ready
+1) ArgoCD API Server をローカル公開:
+
+```bash
+kubectl --context kind-argocd-mgmt -n argocd port-forward svc/argocd-server 8081:443
+```
+
+2) 別ターミナルで初期パスワード取得:
+
+```bash
+kubectl --context kind-argocd-mgmt -n argocd get secret argocd-initial-admin-secret \
+  -o jsonpath="{.data.password}" | base64 --decode; echo
+```
+
+3) ブラウザでアクセス:
+
+- URL: `https://localhost:8081`
+- username: `admin`
+- password: 2) の出力値
 
 ## 運用ポイント
 
 - Auto Sync: Git 変更を自動反映
 - Self Heal: 手動変更ドリフトを自動修復
 - Prune: Git から削除したリソースをクリーンアップ
-- `resources-finalizer.argocd.argoproj.io`: Application 削除時の子リソース管理
-- `revisionHistoryLimit` + `retry` で安定運用を補助
+- 本番では管理クラスタと配備クラスタを分離して blast radius を抑える
+
+## お掃除コマンド
+
+1) 現在の kind クラスタを確認:
+
+```bash
+kind get clusters
+```
+
+2) 分離構成をまとめて削除する:
+
+```bash
+kind delete cluster --name argocd-mgmt
+kind delete cluster --name nginx-prod
+```
