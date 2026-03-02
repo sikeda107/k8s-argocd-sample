@@ -84,13 +84,16 @@ ArgoCD API にログイン:
 ```bash
 kubectl --context kind-argocd-mgmt -n argocd port-forward svc/argocd-server 8081:443
 # 別ターミナル
-argocd login localhost:8081 --username admin --insecure
+argocd login localhost:8081 \
+  --username admin \
+  --password "$(kubectl --context kind-argocd-mgmt -n argocd get secret argocd-initial-admin-secret -o jsonpath='{.data.password}' | base64 --decode)" \
+  --insecure
 ```
 
 配備先クラスタ `kind-nginx-prod` を登録（ArgoCD 内のクラスタ名を `nginx-prod-target` に統一）:
 
 ```bash
-argocd cluster add kind-nginx-prod --name nginx-prod-target --yes
+argocd cluster add kind-nginx-prod --name nginx-prod-target --cluster-endpoint kube-public --yes --insecure
 ```
 
 登録確認:
@@ -152,6 +155,14 @@ curl -i http://127.0.0.1:8080
 ```bash
 git add apps/nginx/base/deployment.yaml
 git commit -m "Scale nginx to 4 replicas"
+git push origin main
+```
+
+検証後に `replicas` を `3` へ戻す場合:
+
+```bash
+git add apps/nginx/base/deployment.yaml
+git commit -m "Scale nginx back to 3 replicas"
 git push origin main
 ```
 
