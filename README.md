@@ -96,6 +96,18 @@ argocd login localhost:8081 \
 argocd cluster add kind-nginx-prod --name nginx-prod-target --cluster-endpoint kube-public --yes --insecure
 ```
 
+`--cluster-endpoint` の意味:
+
+- `kubeconfig`: kubeconfig の `server` を使う
+- `kube-public`: `kube-public/cluster-info` を使う
+- `internal`: `kubernetes.default.svc` を使う
+
+この手順で `kube-public` を使う理由（重要）:
+
+- kind の kubeconfig は `https://127.0.0.1:<port>` になりやすく、ArgoCD Pod からはその `127.0.0.1` が Pod 自身を指すため配備先 API に届かない。
+- その結果、`connection refused` でクラスタ登録・同期が失敗する（今回も `127.0.0.1:60790` で実際に発生）。
+- `argocd cluster add ... --cluster-endpoint kube-public` を使うと、Pod から到達可能な API endpoint を使えて解消できる。
+
 登録確認:
 
 ```bash
