@@ -1,0 +1,29 @@
+flowchart LR
+  subgraph MGMT["Management Cluster: kind-argocd-mgmt"]
+    APP["ArgoCD Application<br/>nginx-prod"]
+    CTRL["ArgoCD Controllers"]
+    APP --> CTRL
+  end
+
+  subgraph GIT["GitHub Repository - YAML Definitions"]
+    BASE["apps/nginx/base"]
+    KUS["kustomization.yaml"]
+    NSY["namespace.yaml<br/>web-prod"]
+    DEPY["deployment.yaml<br/>nginx replicas"]
+    SVCY["service.yaml<br/>ClusterIP nginx"]
+    BASE --> KUS
+    KUS --> NSY
+    KUS --> DEPY
+    KUS --> SVCY
+    DEPY -. "selector: app.kubernetes.io/name=nginx" .-> SVCY
+  end
+
+  subgraph TARGET["Target Cluster: kind-nginx-prod"]
+    NS["Namespace<br/>web-prod"]
+    DEP["Deployment/Pods<br/>nginx"]
+    SVC["Service<br/>nginx:80 -> 8080"]
+    NS --> DEP --> SVC
+  end
+
+  APP -->|source.path| BASE
+  CTRL -->|destination.name: nginx-prod-target| NS

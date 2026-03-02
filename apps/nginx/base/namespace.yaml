@@ -1,6 +1,7 @@
 apiVersion: v1
 kind: Namespace
 metadata:
+  # nginx ワークロードの配備先 namespace
   name: web-prod
   labels:
     app.kubernetes.io/name: nginx

@@ -8,6 +8,7 @@ metadata:
     app.kubernetes.io/part-of: web-platform
     app.kubernetes.io/component: web
 spec:
+  # GitOps 検証で変更対象になるスケール数
   replicas: 3
   revisionHistoryLimit: 5
   selector:
@@ -26,6 +27,7 @@ spec:
           type: RuntimeDefault
       containers:
         - name: nginx
+          # non-root 実行に対応した nginx イメージ
           image: nginxinc/nginx-unprivileged:1.27-alpine
           imagePullPolicy: IfNotPresent
           ports:
@@ -47,12 +49,14 @@ spec:
               cpu: 500m
               memory: 256Mi
           livenessProbe:
+            # プロセス生存確認
             httpGet:
               path: /
               port: http
             initialDelaySeconds: 10
             periodSeconds: 10
           readinessProbe:
+            # トラフィック受け入れ可否の確認
             httpGet:
               path: /
               port: http

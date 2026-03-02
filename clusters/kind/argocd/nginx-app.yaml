@@ -1,29 +1,44 @@
 apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:
+  # ArgoCD 上で識別されるアプリケーション名
   name: nginx-prod
+  # ArgoCD 本体が動作する namespace
   namespace: argocd
   finalizers:
+    # Application 削除時に配下リソースの削除順序を制御
     - resources-finalizer.argocd.argoproj.io
 spec:
   project: default
   source:
+    # GitOps の参照元リポジトリ
     repoURL: https://github.com/sikeda107/k8s-argocd-sample.git
+    # 追従するブランチ/タグ/コミット
     targetRevision: main
+    # リポジトリ内のマニフェスト配置パス（kustomization.yaml があるため Kustomize として解釈される）
     path: apps/nginx/base
   destination:
+    # argocd cluster add --name で登録した配備先クラスタ名
     name: nginx-prod-target
+    # 配備先クラスタ上の namespace
     namespace: web-prod
   syncPolicy:
     automated:
+      # Git から消えたリソースをクラスタからも削除
       prune: true
+      # 手動変更のドリフトを Git 状態へ自動修復
       selfHeal: true
       allowEmpty: false
     syncOptions:
+      # namespace 未作成時に自動作成
       - CreateNamespace=true
+      # prune 時に依存リソース削除完了を待つ
       - PrunePropagationPolicy=foreground
+      # apply/更新の後に prune を実行
       - PruneLast=true
+      # 差分があるリソースのみ apply
       - ApplyOutOfSyncOnly=true
+      # ignoreDifferences の無視設定を同期時にも尊重
       - RespectIgnoreDifferences=true
     retry:
       limit: 5

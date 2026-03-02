@@ -7,10 +7,14 @@ metadata:
     app.kubernetes.io/name: nginx
     app.kubernetes.io/part-of: web-platform
 spec:
+  # nginx Pod 群へルーティングする selector
   selector:
     app.kubernetes.io/name: nginx
   ports:
     - name: http
+      # Service の公開ポート
       port: 80
+      # Pod 側の named port(http=8080)へ転送
       targetPort: http
+  # クラスタ内部向けアクセス
   type: ClusterIP
