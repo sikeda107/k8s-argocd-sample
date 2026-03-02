@@ -27,3 +27,15 @@ ArgoCD は `clusters/kind/argocd/nginx-app.yaml` の `spec.source.path: apps/ngi
 2. `deployment.yaml` が `web-prod` に nginx Pod 群を作る。
 3. `service.yaml` がその Pod 群への安定したアクセス入口になる。
 4. `kustomization.yaml` が 1-3 をまとめて 1 回で適用可能にする。
+
+## ラベルの意味（今回の構成）
+
+- 動作に直接効くラベル:
+  - `app.kubernetes.io/name: nginx`
+  - `service.yaml` の selector と一致し、Service が対象 Pod を選択するために使われる。
+
+- 主に運用メタデータのラベル:
+  - `app.kubernetes.io/part-of: web-platform`
+  - `app.kubernetes.io/component: web`
+  - `env: prod`
+  - これらは検索・整理・可視化のための情報で、今回の配線自体には必須ではない。
