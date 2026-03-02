@@ -137,11 +137,60 @@ kubectl -n web-prod port-forward svc/nginx 8080:80
 curl -i http://127.0.0.1:8080
 ```
 
+## 8. ArgoCD UI へのアクセス
+
+```bash
+# 1) ローカルへポートフォワード
+kubectl -n argocd port-forward svc/argocd-server 8081:443
+```
+
+別ターミナルで初期管理者パスワードを取得:
+
+```bash
+kubectl -n argocd get secret argocd-initial-admin-secret \
+  -o jsonpath="{.data.password}" | base64 --decode; echo
+```
+
+ブラウザアクセス:
+
+- `https://localhost:8081`
+- username: `admin`
+- password: 上記コマンドで取得した値
+
+## 9. Auto Deploy 検証（replicas 変更）
+
+`Auto Sync` が有効なため、Git へ push するだけでクラスタ反映されます。  
+以下は実際に行った検証手順です。
+
+```bash
+# replicas を 3 -> 4 へ変更
+git add apps/nginx/base/deployment.yaml
+git commit -m "Scale nginx to 4 replicas"
+git push origin main
+```
+
+反映確認:
+
+```bash
+# ArgoCD が最新 commit を追従しているか
+kubectl -n argocd get application nginx-prod -o wide
+
+# Deployment の replicas が増えたか
+kubectl -n web-prod get deploy nginx
+kubectl -n web-prod get pods
+```
+
+期待値:
+
+- `nginx-prod` が `Synced` / `Healthy`
+- `REVISION` が push した commit SHA に更新される
+- `deployment/nginx` が `4/4` になる
+
 期待値:
 
 - `nginx-prod` が `Synced` / `Healthy`
 - `web-prod` namespace が存在
-- `deployment/nginx` が `3/3` Ready
+- `deployment/nginx` が Git で定義した replicas 数で Ready
 
 ## 運用ポイント
 
