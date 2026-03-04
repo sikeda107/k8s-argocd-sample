@@ -1,0 +1,16 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: nginx-gateway
+  namespace: web-gateway
+  labels:
+    app.kubernetes.io/name: nginx-gateway
+    app.kubernetes.io/part-of: web-platform
+spec:
+  selector:
+    app.kubernetes.io/name: nginx-gateway
+  ports:
+    - name: http
+      port: 80
+      targetPort: http
+  type: ClusterIP
