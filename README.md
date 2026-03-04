@@ -261,6 +261,21 @@ curl -i --max-time 5 http://127.0.0.1:8080
 - Ingress経由: `connection refused` などで失敗（Controller/入口未整備時）
 - Service直通: `HTTP/1.1 200 OK`
 
+6) Ingress Controller 経由での到達確認（今回成功した手順）:
+
+```bash
+# 8081 が使用中だったため 8082 を使用
+kubectl --context kind-nginx-prod -n ingress-nginx port-forward svc/ingress-nginx-controller 8082:80
+
+# 別ターミナル
+curl -i --max-time 5 -H "Host: nginx-ingress.local" http://127.0.0.1:8082
+```
+
+期待値:
+
+- `HTTP/1.1 200 OK` が返る
+- nginx welcome page が表示される
+
 ## 運用ポイント
 
 - Auto Sync: Git 変更を自動反映
