@@ -213,6 +213,54 @@ kubectl --context kind-argocd-mgmt -n argocd get secret argocd-initial-admin-sec
 - username: `admin`
 - password: 2) の出力値
 
+## 10. Ingress 用の別 Application 追加（今回実行したコマンド）
+
+1) Application を管理クラスタへ適用:
+
+```bash
+kubectl --context kind-argocd-mgmt apply -f clusters/kind/argocd/nginx-ingress-app.yaml
+kubectl --context kind-argocd-mgmt -n argocd get application nginx-ingress-prod -o wide
+```
+
+2) 新規マニフェストを GitHub へ反映（`app path does not exist` 対策）:
+
+```bash
+git add apps/nginx-ingress/base clusters/kind/argocd/nginx-ingress-app.yaml
+git commit -m "Add separate ArgoCD app for nginx ingress namespace"
+git push origin main
+```
+
+3) ArgoCD に再評価をトリガー:
+
+```bash
+kubectl --context kind-argocd-mgmt -n argocd annotate application nginx-ingress-prod argocd.argoproj.io/refresh=hard --overwrite
+kubectl --context kind-argocd-mgmt -n argocd get application nginx-ingress-prod -o wide
+```
+
+4) 配備先クラスタで作成確認:
+
+```bash
+kubectl --context kind-nginx-prod get ns web-ingress
+kubectl --context kind-nginx-prod -n web-ingress get deploy,pods,svc,ingress
+kubectl --context kind-nginx-prod -n web-ingress rollout status deploy/nginx-ingress
+```
+
+5) Ingress 入口の診断（未確立時の確認）:
+
+```bash
+# Ingress経由（入口未確立なら失敗）
+curl -i --max-time 3 -H "Host: nginx-ingress.local" http://127.0.0.1/
+
+# Service直通（成功するか比較）
+kubectl --context kind-nginx-prod -n web-ingress port-forward svc/nginx-ingress 8080:80
+curl -i --max-time 5 http://127.0.0.1:8080
+```
+
+期待値:
+
+- Ingress経由: `connection refused` などで失敗（Controller/入口未整備時）
+- Service直通: `HTTP/1.1 200 OK`
+
 ## 運用ポイント
 
 - Auto Sync: Git 変更を自動反映
