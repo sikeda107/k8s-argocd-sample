@@ -1,0 +1,4 @@
+interface:
+  display_name: "K8s Network Mermaid"
+  short_description: "Create Mermaid maps for Kubernetes traffic/resource YAML files"
+  default_prompt: "Use $k8s-network-mermaid to create a Kubernetes resource relationship diagram with file mappings."

@@ -1,0 +1,17 @@
+flowchart LR;
+CLIENT["Client host nginx-gateway.local"];
+
+subgraph NS["Namespace web-gateway (defined namespace.yaml)"];
+  GW["Gateway/nginx-gateway (defined gateway.yaml)"];
+  ROUTE["HTTPRoute/nginx-gateway (defined httproute.yaml)"];
+  SVC["Service/nginx-gateway (defined service.yaml)"];
+  DEP["Deployment/nginx-gateway (defined deployment.yaml)"];
+  POD["Pod/nginx (from deployment.yaml)"];
+end;
+
+CLIENT -->|Host header| GW;
+ROUTE -->|spec.parentRefs.name: nginx-gateway| GW;
+GW -->|listeners.allowedRoutes.namespaces.from: Same| ROUTE;
+ROUTE -->|rules.backendRefs: nginx-gateway:80| SVC;
+SVC --> POD;
+DEP --> POD;

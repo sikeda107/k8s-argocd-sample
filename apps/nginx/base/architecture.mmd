@@ -1,0 +1,12 @@
+flowchart LR;
+CLIENT["Client"];
+
+subgraph NS["Namespace web-prod (defined namespace.yaml)"];
+  SVC["Service/nginx (defined service.yaml)"];
+  DEP["Deployment/nginx (defined deployment.yaml)"];
+  POD["Pod/app.kubernetes.io/name=nginx (from deployment.yaml)"];
+end;
+
+CLIENT --> SVC;
+SVC -->|spec.selector| POD;
+DEP -->|spec.template.labels| POD;

@@ -1,0 +1,14 @@
+flowchart LR;
+CLIENT["Client host nginx-ingress.local"];
+
+subgraph NS["Namespace web-ingress (defined namespace.yaml)"];
+  ING["Ingress/nginx-ingress (defined ingress.yaml)"];
+  SVC["Service/nginx-ingress (defined service.yaml)"];
+  DEP["Deployment/nginx-ingress (defined deployment.yaml)"];
+  POD["Pod/app.kubernetes.io/name=nginx-ingress (from deployment.yaml)"];
+end;
+
+CLIENT -->|Host header| ING;
+ING -->|spec.rules.http.paths.backend.service| SVC;
+SVC -->|spec.selector| POD;
+DEP -->|spec.template.labels| POD;
