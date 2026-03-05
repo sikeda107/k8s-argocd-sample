@@ -46,19 +46,7 @@ git push origin main
 
 ## 2. kind クラスタを2つ作成
 
-```bash
-kind create cluster --name argocd-mgmt
-kind create cluster --name nginx-prod
-```
-
-確認:
-
-```bash
-kind get clusters
-kubectl config get-contexts -o name
-```
-
-`localhost:80/443` で Ingress を直接確認したい場合は、`nginx-prod` を port mapping 付きで作成:
+`nginx-prod` は `localhost:80/443` で Ingress/Gateway の確認ができるよう、port mapping 付きで作成します。
 
 ```bash
 cat > kind-nginx-prod.yaml <<'EOF'
@@ -76,7 +64,15 @@ nodes:
         protocol: TCP
 EOF
 
+kind create cluster --name argocd-mgmt
 kind create cluster --config kind-nginx-prod.yaml
+```
+
+確認:
+
+```bash
+kind get clusters
+kubectl config get-contexts -o name
 ```
 
 ## 3. 管理クラスタに ArgoCD をインストール
@@ -279,7 +275,9 @@ curl -i --max-time 5 http://127.0.0.1:8080
 
 期待値:
 
-- Ingress経由: `connection refused` などで失敗（Controller/入口未整備時）
+- Ingress経由:
+  - `nginx-prod` を port mapping なしで作成した場合は `connection refused` などで失敗
+  - 本 README の port mapping 付き構成では成功する（`HTTP/1.1 200 OK`）
 - Service直通: `HTTP/1.1 200 OK`
 
 6) Ingress Controller 経由での到達確認（今回成功した手順）:
@@ -355,6 +353,14 @@ kubectl --context kind-nginx-prod -n web-gateway get deploy,pods,svc,gateway,htt
 
 ## 12. kind 再作成後の復旧手順（今回実行したコマンド）
 
+この節は「再作成時の差分」だけを記載します。  
+通常の手順は以下を再実行してください。
+
+- クラスタ作成: `## 2`
+- ArgoCD 導入: `## 3`
+- クラスタ登録: `## 4`
+- 各 Application 適用: `## 5`, `## 10`, `## 11`
+
 1) 既存クラスタ削除:
 
 ```bash
@@ -362,31 +368,14 @@ kind delete cluster --name argocd-mgmt
 kind delete cluster --name nginx-prod
 ```
 
-2) クラスタ再作成:
+2) クラスタ再作成（`## 2` をそのまま再実行）:
 
 ```bash
 kind create cluster --name argocd-mgmt
 kind create cluster --config kind-nginx-prod.yaml
 ```
 
-3) ArgoCD 再導入:
-
-```bash
-kubectl --context kind-argocd-mgmt create namespace argocd
-kubectl --context kind-argocd-mgmt apply -n argocd -f https://raw.githubusercontent.com/argoproj/argo-cd/stable/manifests/install.yaml
-kubectl --context kind-argocd-mgmt apply --server-side -n argocd -f https://raw.githubusercontent.com/argoproj/argo-cd/stable/manifests/install.yaml
-```
-
-4) 配備先クラスタを再登録:
-
-```bash
-kubectl --context kind-argocd-mgmt -n argocd port-forward svc/argocd-server 8081:443
-# 別ターミナル
-argocd login localhost:8081 --username admin --password "$(kubectl --context kind-argocd-mgmt -n argocd get secret argocd-initial-admin-secret -o jsonpath='{.data.password}' | base64 --decode)" --insecure
-argocd cluster add kind-nginx-prod --name nginx-prod-target --cluster-endpoint kube-public --yes --insecure
-```
-
-5) 必須コントローラ再導入:
+3) 必須コントローラ再導入:
 
 ```bash
 # Ingress
@@ -398,7 +387,7 @@ kubectl --context kind-nginx-prod apply --server-side -f https://raw.githubuserc
 kubectl --context kind-nginx-prod apply -f https://raw.githubusercontent.com/nginx/nginx-gateway-fabric/v2.2.0/deploy/default/deploy.yaml
 ```
 
-6) 3 Application を再適用:
+4) 3 Application を再適用:
 
 ```bash
 kubectl --context kind-argocd-mgmt apply -f clusters/kind/argocd/nginx-app.yaml
