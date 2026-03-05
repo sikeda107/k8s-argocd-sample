@@ -10,16 +10,15 @@
 ```text
 .
 ├── apps/
-│   └── nginx/
-│       └── base/
-│           ├── kustomization.yaml
-│           ├── namespace.yaml
-│           ├── deployment.yaml
-│           └── service.yaml
+│   ├── nginx/base/
+│   ├── nginx-ingress/base/
+│   └── nginx-gateway/base/
 └── clusters/
     └── kind/
         └── argocd/
-            └── nginx-app.yaml
+            ├── nginx-app.yaml
+            ├── nginx-ingress-app.yaml
+            └── nginx-gateway-app.yaml
 ```
 
 ## 前提
@@ -46,26 +45,29 @@ git push origin main
 
 ## 2. kind クラスタを2つ作成
 
-`nginx-prod` は `localhost:80/443` で Ingress/Gateway の確認ができるよう、port mapping 付きで作成します。
+`nginx-prod` は Ingress/Gateway 同時検証のため、port mapping 分離版で作成します。
 
 ```bash
-cat > kind-nginx-prod.yaml <<'EOF'
+cat > kind-nginx-prod-multi.yaml <<'EOF'
 kind: Cluster
 apiVersion: kind.x-k8s.io/v1alpha4
 name: nginx-prod
 nodes:
   - role: control-plane
     extraPortMappings:
-      - containerPort: 80
+      - containerPort: 30080
         hostPort: 80
         protocol: TCP
-      - containerPort: 443
+      - containerPort: 30443
         hostPort: 443
+        protocol: TCP
+      - containerPort: 30088
+        hostPort: 8088
         protocol: TCP
 EOF
 
 kind create cluster --name argocd-mgmt
-kind create cluster --config kind-nginx-prod.yaml
+kind create cluster --config kind-nginx-prod-multi.yaml
 ```
 
 確認:
@@ -262,38 +264,15 @@ kubectl --context kind-nginx-prod -n web-ingress get deploy,pods,svc,ingress
 kubectl --context kind-nginx-prod -n web-ingress rollout status deploy/nginx-ingress
 ```
 
-5) Ingress 入口の診断（未確立時の確認）:
+5) Ingress 入口の確認:
 
 ```bash
-# Ingress経由（入口未確立なら失敗）
-curl -i --max-time 3 -H "Host: nginx-ingress.local" http://127.0.0.1/
-
-# Service直通（成功するか比較）
-kubectl --context kind-nginx-prod -n web-ingress port-forward svc/nginx-ingress 8080:80
-curl -i --max-time 5 http://127.0.0.1:8080
-```
-
-期待値:
-
-- Ingress経由:
-  - `nginx-prod` を port mapping なしで作成した場合は `connection refused` などで失敗
-  - 本 README の port mapping 付き構成では成功する（`HTTP/1.1 200 OK`）
-- Service直通: `HTTP/1.1 200 OK`
-
-6) Ingress Controller 経由での到達確認（今回成功した手順）:
-
-```bash
-# 8081 が使用中だったため 8082 を使用
-kubectl --context kind-nginx-prod -n ingress-nginx port-forward svc/ingress-nginx-controller 8082:80
-
-# 別ターミナル
-curl -i --max-time 5 -H "Host: nginx-ingress.local" http://127.0.0.1:8082
+curl -i --max-time 5 -H "Host: nginx-ingress.local" http://127.0.0.1/
 ```
 
 期待値:
 
 - `HTTP/1.1 200 OK` が返る
-- nginx welcome page が表示される
 
 ## 11. Gateway API 用の別 Application 追加（今回実行したコマンド）
 
@@ -353,13 +332,7 @@ kubectl --context kind-nginx-prod -n web-gateway get deploy,pods,svc,gateway,htt
 
 ## 12. kind 再作成後の復旧手順（今回実行したコマンド）
 
-この節は「再作成時の差分」だけを記載します。  
-通常の手順は以下を再実行してください。
-
-- クラスタ作成: `## 2`
-- ArgoCD 導入: `## 3`
-- クラスタ登録: `## 4`
-- 各 Application 適用: `## 5`, `## 10`, `## 11`
+差分だけを記載します（詳細は `##2` 〜 `##11`）。
 
 1) 既存クラスタ削除:
 
@@ -368,11 +341,11 @@ kind delete cluster --name argocd-mgmt
 kind delete cluster --name nginx-prod
 ```
 
-2) クラスタ再作成（`## 2` をそのまま再実行）:
+2) クラスタ再作成:
 
 ```bash
 kind create cluster --name argocd-mgmt
-kind create cluster --config kind-nginx-prod.yaml
+kind create cluster --config kind-nginx-prod-multi.yaml
 ```
 
 3) 必須コントローラ再導入:
@@ -387,20 +360,42 @@ kubectl --context kind-nginx-prod apply --server-side -f https://raw.githubuserc
 kubectl --context kind-nginx-prod apply -f https://raw.githubusercontent.com/nginx/nginx-gateway-fabric/v2.2.0/deploy/default/deploy.yaml
 ```
 
-4) 3 Application を再適用:
+4) ArgoCD と Application を再適用:
 
 ```bash
+kubectl --context kind-argocd-mgmt create namespace argocd
+kubectl --context kind-argocd-mgmt apply -n argocd -f https://raw.githubusercontent.com/argoproj/argo-cd/stable/manifests/install.yaml
+
 kubectl --context kind-argocd-mgmt apply -f clusters/kind/argocd/nginx-app.yaml
 kubectl --context kind-argocd-mgmt apply -f clusters/kind/argocd/nginx-ingress-app.yaml
 kubectl --context kind-argocd-mgmt apply -f clusters/kind/argocd/nginx-gateway-app.yaml
 kubectl --context kind-argocd-mgmt -n argocd get applications.argoproj.io -o wide
 ```
 
-補足（到達確認の違い）:
+## 13. Ingress / Gateway を同時に検証する
 
-- Ingress は `localhost:80` + `Host: nginx-ingress.local` で `200 OK` を確認可能
-- Gateway は同じ `localhost:80` では `404` の場合がある（ingress-nginx が受けるため）
-- Gateway の確認は controller/service の公開経路に合わせて別ポートで確認する
+`kind-nginx-prod-multi.yaml` で port mapping を分離しているため、同時に検証できます。
+
+- Ingress: `localhost:80`（nodePort `30080`）
+- Gateway: `localhost:8088`（nodePort `30088`）
+
+確認コマンド:
+
+```bash
+kubectl --context kind-nginx-prod -n ingress-nginx get svc ingress-nginx-controller -o wide
+kubectl --context kind-nginx-prod -n web-gateway get svc nginx-gateway -o wide
+
+curl -i -H "Host: nginx-ingress.local" http://127.0.0.1/
+curl -i -H "Host: nginx-gateway.local" http://127.0.0.1:8088/
+```
+
+必要に応じて片方だけ止める場合:
+
+```bash
+kubectl --context kind-argocd-mgmt -n argocd delete application nginx-ingress-prod
+# または
+kubectl --context kind-argocd-mgmt -n argocd delete application nginx-gateway-prod
+```
 
 ## 運用ポイント
 
