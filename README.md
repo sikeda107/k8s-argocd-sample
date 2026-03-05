@@ -276,6 +276,62 @@ curl -i --max-time 5 -H "Host: nginx-ingress.local" http://127.0.0.1:8082
 - `HTTP/1.1 200 OK` が返る
 - nginx welcome page が表示される
 
+## 11. Gateway API 用の別 Application 追加（今回実行したコマンド）
+
+1) Gateway 用 Application を管理クラスタへ適用:
+
+```bash
+kubectl --context kind-argocd-mgmt apply -f clusters/kind/argocd/nginx-gateway-app.yaml
+kubectl --context kind-argocd-mgmt -n argocd get application nginx-gateway-prod -o wide
+```
+
+2) 新規マニフェストを GitHub へ反映:
+
+```bash
+git add apps/nginx-gateway clusters/kind/argocd/nginx-gateway-app.yaml
+git commit -m "Add separate ArgoCD Gateway API example on web-gateway namespace"
+git push origin main
+```
+
+3) 配備先クラスタに Gateway API CRD を導入:
+
+```bash
+kubectl --context kind-nginx-prod apply -f https://github.com/kubernetes-sigs/gateway-api/releases/download/v1.2.1/standard-install.yaml
+```
+
+4) NGINX Gateway Fabric を導入（Gateway controller）:
+
+```bash
+# CRD
+kubectl --context kind-nginx-prod apply -f https://raw.githubusercontent.com/nginx/nginx-gateway-fabric/v2.2.0/deploy/crds.yaml
+
+# annotation サイズエラー時
+kubectl --context kind-nginx-prod apply --server-side -f https://raw.githubusercontent.com/nginx/nginx-gateway-fabric/v2.2.0/deploy/crds.yaml
+
+# controller 本体
+kubectl --context kind-nginx-prod apply -f https://raw.githubusercontent.com/nginx/nginx-gateway-fabric/v2.2.0/deploy/default/deploy.yaml
+kubectl --context kind-nginx-prod -n nginx-gateway rollout status deploy/nginx-gateway --timeout=240s
+```
+
+5) 過去の SyncError が残る場合は Application を再作成:
+
+```bash
+kubectl --context kind-argocd-mgmt -n argocd delete application nginx-gateway-prod --wait=true
+kubectl --context kind-argocd-mgmt apply -f clusters/kind/argocd/nginx-gateway-app.yaml
+```
+
+6) 状態確認:
+
+```bash
+kubectl --context kind-argocd-mgmt -n argocd get application nginx-gateway-prod -o wide
+kubectl --context kind-nginx-prod -n web-gateway get deploy,pods,svc,gateway,httproute
+```
+
+期待値:
+
+- `nginx-gateway-prod` が `Synced` / `Healthy`
+- `Gateway` が `PROGRAMMED=True`
+
 ## 運用ポイント
 
 - Auto Sync: Git 変更を自動反映
