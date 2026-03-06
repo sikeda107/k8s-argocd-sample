@@ -4,6 +4,7 @@ metadata:
   name: nginx-gateway
   namespace: web-gateway
 spec:
+  # クラスタ内の GatewayClass "nginx" を参照
   gatewayClassName: nginx
   listeners:
     - name: http

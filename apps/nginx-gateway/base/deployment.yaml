@@ -11,6 +11,7 @@ spec:
   replicas: 2
   revisionHistoryLimit: 5
   selector:
+    # Deployment が管理対象にする Pod を labels で参照
     matchLabels:
       app.kubernetes.io/name: nginx-gateway
   template:
@@ -49,12 +50,14 @@ spec:
           livenessProbe:
             httpGet:
               path: /
+              # named port "http" を同コンテナ内 ports.name から参照
               port: http
             initialDelaySeconds: 10
             periodSeconds: 10
           readinessProbe:
             httpGet:
               path: /
+              # named port "http" を同コンテナ内 ports.name から参照
               port: http
             initialDelaySeconds: 5
             periodSeconds: 5

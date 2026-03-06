@@ -7,11 +7,13 @@ metadata:
     app.kubernetes.io/name: nginx-gateway
     app.kubernetes.io/part-of: web-platform
 spec:
+  # Deployment/Pod 側の label app.kubernetes.io/name=nginx-gateway を参照
   selector:
     app.kubernetes.io/name: nginx-gateway
   ports:
     - name: http
       port: 80
+      # 同 namespace の Pod が定義する named port "http" を参照
       targetPort: http
       nodePort: 30088
   type: NodePort
