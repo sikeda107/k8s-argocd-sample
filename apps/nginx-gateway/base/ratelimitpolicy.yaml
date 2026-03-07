@@ -1,0 +1,19 @@
+apiVersion: gateway.nginx.org/v1alpha1
+kind: RateLimitPolicy
+metadata:
+  name: nginx-gateway-rate-limit
+  namespace: web-gateway
+spec:
+  # HTTPRoute/nginx-gateway へのリクエストにレート制限を適用
+  targetRefs:
+    - group: gateway.networking.k8s.io
+      kind: HTTPRoute
+      name: nginx-gateway
+  rateLimit:
+    rejectCode: 429
+    local:
+      rules:
+        - key: $binary_remote_addr
+          rate: 2r/s
+          noDelay: true
+          zoneSize: 10m

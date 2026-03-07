@@ -1,0 +1,14 @@
+apiVersion: gateway.nginx.org/v1alpha1
+kind: ClientSettingsPolicy
+metadata:
+  name: nginx-gateway-client-settings
+  namespace: web-gateway
+spec:
+  # HTTPRoute/nginx-gateway にこのポリシーを適用
+  targetRef:
+    group: gateway.networking.k8s.io
+    kind: HTTPRoute
+    name: nginx-gateway
+  body:
+    # 1KiB を超える request body を 413 で拒否
+    maxSize: 1k

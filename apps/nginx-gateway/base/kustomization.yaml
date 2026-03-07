@@ -7,3 +7,5 @@ resources:
   - service.yaml
   - gateway.yaml
   - httproute.yaml
+  - clientsettingspolicy.yaml
+  - ratelimitpolicy.yaml
