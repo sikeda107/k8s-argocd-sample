@@ -294,20 +294,17 @@ git push origin main
 3) 配備先クラスタに Gateway API CRD を導入:
 
 ```bash
-kubectl --context kind-nginx-prod apply -f https://github.com/kubernetes-sigs/gateway-api/releases/download/v1.2.1/standard-install.yaml
+kubectl --context kind-nginx-prod apply -f https://github.com/kubernetes-sigs/gateway-api/releases/download/v1.5.0/standard-install.yaml
 ```
 
 4) NGINX Gateway Fabric を導入（Gateway controller）:
 
 ```bash
 # CRD
-kubectl --context kind-nginx-prod apply -f https://raw.githubusercontent.com/nginx/nginx-gateway-fabric/v2.2.0/deploy/crds.yaml
-
-# annotation サイズエラー時
-kubectl --context kind-nginx-prod apply --server-side -f https://raw.githubusercontent.com/nginx/nginx-gateway-fabric/v2.2.0/deploy/crds.yaml
+kubectl --context kind-nginx-prod apply --server-side -f https://raw.githubusercontent.com/nginx/nginx-gateway-fabric/main/deploy/crds.yaml
 
 # controller 本体
-kubectl --context kind-nginx-prod apply -f https://raw.githubusercontent.com/nginx/nginx-gateway-fabric/v2.2.0/deploy/default/deploy.yaml
+kubectl --context kind-nginx-prod apply -f https://raw.githubusercontent.com/nginx/nginx-gateway-fabric/main/deploy/default/deploy.yaml
 kubectl --context kind-nginx-prod -n nginx-gateway rollout status deploy/nginx-gateway --timeout=240s
 ```
 
@@ -355,9 +352,9 @@ kind create cluster --config kind-nginx-prod-multi.yaml
 kubectl --context kind-nginx-prod apply -f https://raw.githubusercontent.com/kubernetes/ingress-nginx/main/deploy/static/provider/kind/deploy.yaml
 
 # Gateway API + NGINX Gateway Fabric
-kubectl --context kind-nginx-prod apply -f https://github.com/kubernetes-sigs/gateway-api/releases/download/v1.2.1/standard-install.yaml
-kubectl --context kind-nginx-prod apply --server-side -f https://raw.githubusercontent.com/nginx/nginx-gateway-fabric/v2.2.0/deploy/crds.yaml
-kubectl --context kind-nginx-prod apply -f https://raw.githubusercontent.com/nginx/nginx-gateway-fabric/v2.2.0/deploy/default/deploy.yaml
+kubectl --context kind-nginx-prod apply -f https://github.com/kubernetes-sigs/gateway-api/releases/download/v1.5.0/standard-install.yaml
+kubectl --context kind-nginx-prod apply --server-side -f https://raw.githubusercontent.com/nginx/nginx-gateway-fabric/main/deploy/crds.yaml
+kubectl --context kind-nginx-prod apply -f https://raw.githubusercontent.com/nginx/nginx-gateway-fabric/main/deploy/default/deploy.yaml
 ```
 
 4) ArgoCD と Application を再適用:
@@ -377,17 +374,58 @@ kubectl --context kind-argocd-mgmt -n argocd get applications.argoproj.io -o wid
 `kind-nginx-prod-multi.yaml` で port mapping を分離しているため、同時に検証できます。
 
 - Ingress: `localhost:80`（nodePort `30080`）
-- Gateway: `localhost:8088`（nodePort `30088`）
+- App Service (Gateway backend): `localhost:8088`（nodePort `30088`）
+- Gateway listener: `kubectl port-forward svc/nginx-gateway-nginx 18080:80` 経由の `localhost:18080`
+
+注記:
+
+- `localhost:8088` は `Service/nginx-gateway`（アプリ Service）への入口です。
+- `RateLimitPolicy` など Gateway policy の実検証は、Gateway listener Service (`nginx-gateway-nginx`) を使ってください。
 
 確認コマンド:
 
 ```bash
 kubectl --context kind-nginx-prod -n ingress-nginx get svc ingress-nginx-controller -o wide
 kubectl --context kind-nginx-prod -n web-gateway get svc nginx-gateway -o wide
+kubectl --context kind-nginx-prod -n web-gateway get svc nginx-gateway-nginx -o wide
 
 curl -i -H "Host: nginx-ingress.local" http://127.0.0.1/
 curl -i -H "Host: nginx-gateway.local" http://127.0.0.1:8088/
 ```
+
+## 14. NGINX Gateway Fabric Policy（ClientSettings / RateLimit）検証
+
+`apps/nginx-gateway/base` には以下の policy を含めています。
+
+- `ClientSettingsPolicy/nginx-gateway-client-settings`
+- `RateLimitPolicy/nginx-gateway-rate-limit`（`rejectCode: 429`, `2r/s`）
+
+前提:
+
+- Gateway API CRD は `v1.5.0` 以上
+- NGINX Gateway Fabric は `main/edge`（`RateLimitPolicy` CRD を含む）を利用
+
+適用:
+
+```bash
+kubectl --context kind-nginx-prod apply -k apps/nginx-gateway/base
+kubectl --context kind-nginx-prod -n web-gateway get clientsettingspolicy,ratelimitpolicy
+```
+
+RateLimit の実測（Gateway listener 経由）:
+
+```bash
+# Terminal A
+kubectl --context kind-nginx-prod -n web-gateway port-forward svc/nginx-gateway-nginx 18080:80
+
+# Terminal B
+(for i in $(seq 1 100); do (curl -s -o /dev/null -w '%{http_code}\n' -H 'Host: nginx-gateway.local' http://127.0.0.1:18080/ &) ; done; wait) | sort | uniq -c
+```
+
+期待値:
+
+- `200` と `429` が混在（例: `1 x 200`, `99 x 429`）
+- すべて `200` の場合は `Gateway` ではなくアプリ `Service` 側に当たっていないかを確認
 
 必要に応じて片方だけ止める場合:
 
